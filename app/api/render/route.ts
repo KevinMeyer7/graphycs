@@ -3,15 +3,15 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
-import type { Storyboard, Segment, BrollClip } from '../../../remotion/Composition';
+import type { Storyboard, Segment } from '../../../remotion/Composition';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { storyboard, audioUrl, brollClips, segments } = body as {
+    const { storyboard, audioUrl, brollUrls, segments } = body as {
       storyboard: Storyboard;
       audioUrl?: string | null;
-      brollClips?: BrollClip[] | null;
+      brollUrls?: string[] | null;
       segments?: Segment[];
     };
 
@@ -23,12 +23,12 @@ export async function POST(request: NextRequest) {
     console.log('[Render] Storyboard title:', storyboard.title);
     console.log('[Render] Modules:', storyboard.modules.length);
     console.log('[Render] Has audio:', !!audioUrl);
-    console.log('[Render] B-roll clips:', brollClips?.length || 0);
+    console.log('[Render] B-roll clips:', brollUrls?.length || 0);
     console.log('[Render] Has segments:', !!segments?.length);
 
     // Bundle the Remotion project
     const bundleLocation = await bundle({
-      entryPoint: join(process.cwd(), 'remotion/index.ts'),
+      entryPoint: join(process.cwd(), 'remotion/index.tsx'),
       webpackOverride: (config) => config,
     });
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const composition = await selectComposition({
       serveUrl: bundleLocation,
       id: 'GraphycsComposition',
-      inputProps: { storyboard, audioUrl, brollClips, segments },
+      inputProps: { storyboard, audioUrl, brollUrls, segments },
     });
 
     console.log('[Render] Composition selected:', composition.id);
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       serveUrl: bundleLocation,
       codec: 'h264',
       outputLocation: outputPath,
-      inputProps: { storyboard, audioUrl, brollClips, segments },
+      inputProps: { storyboard, audioUrl, brollUrls, segments },
       onProgress: ({ progress, renderedFrames, encodedFrames }) => {
         console.log(
           `[Render] Progress: ${(progress * 100).toFixed(1)}% | ` +

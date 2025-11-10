@@ -70,14 +70,13 @@ export type Storyboard = {
 };
 
 // ---------- tRPC client ----------
-export const trpc = createTRPCReact<import("@/trpc-types").AppRouter>();
+const trpc = createTRPCReact<import("@/trpc-types").AppRouter>();
 const queryClient = new QueryClient();
 function TRPCProvider({ children }: { children: React.ReactNode }) {
   return (
     <trpc.Provider
       client={trpc.createClient({
         links: [httpBatchLink({ url: "/api/trpc", transformer: superjson })],
-        transformer: superjson,
       })}
       queryClient={queryClient}
     >
@@ -125,7 +124,7 @@ function DemoPage() {
   const generate = trpc.structure.generate.useMutation();
   const tts = trpc.audio.tts.useMutation();
   const audioSegments = trpc.audioSegments.generateSegments.useMutation();
-  const video = trpc.video.generateBrollClips.useMutation();
+  const video = trpc.video.runwayBatch.useMutation();
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioSeconds, setAudioSeconds] = useState<number | null>(null);
@@ -133,7 +132,7 @@ function DemoPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [segments, setSegments] = useState<Segment[] | null>(null);
-  const [brollClips, setBrollClips] = useState<Array<{brollUrl: string; metadata: any}> | null>(null);
+  const [brollClips, setBrollClips] = useState<string[] | null>(null); // Simplified: just URLs
   const [useSegmented, setUseSegmented] = useState(false);
   const [useBroll, setUseBroll] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -263,21 +262,25 @@ function DemoPage() {
     console.log("[Broll] Titles:", allTitles);
 
     const res = await video.mutateAsync({
-      concepts: allConcepts,
-      moduleTitles: allTitles,
-      accentColor: 'emerald',
-      duration: 6
+      prompts: allConcepts,
+      seconds: 5,
+      accent: 'emerald',
     });
 
-    if (!res?.clips || res.clips.length === 0) {
+    if (!res?.urls || res.urls.length === 0) {
       return alert("B-roll generation failed");
     }
 
-    console.log("[Broll] Generated", res.totalClips, "clips");
-    res.clips.forEach((clip, i) => {
-      console.log(`[Broll] Clip ${i + 1}:`, clip.metadata);
+    console.log("[Broll] Generated", res.urls.length, "clips");
+    res.urls.forEach((url, i) => {
+      console.log(`[Broll] Clip ${i + 1}:`, {
+        url,
+        metadata: res.metadata?.[i],
+      });
     });
-    setBrollClips(res.clips);
+
+    // Simplified: just store URLs
+    setBrollClips(res.urls);
   };
 
   const handleRenderMP4 = async () => {
@@ -292,7 +295,7 @@ function DemoPage() {
         body: JSON.stringify({
           storyboard: story,
           audioUrl,
-          brollClips: useBroll ? brollClips : null,
+          brollUrls: useBroll ? brollClips : null,
           segments: useSegmented ? segments : null,
         }),
       });
@@ -595,13 +598,13 @@ function DemoPage() {
           {story ? (
             <Player
               key={`${audioUrl || segments?.[0]?.url || "no-audio"}-${
-                brollClips?.map(c => c.brollUrl).join(',') || "no-broll"
+                brollClips?.join(',') || "no-broll"
               }`}
               component={GraphycsComposition}
               inputProps={{
                 storyboard: story,
                 audioUrl: useSegmented ? null : audioUrl,
-                brollClips: useBroll ? brollClips || undefined : undefined,
+                brollUrls: useBroll ? brollClips || undefined : undefined,
                 segments: useSegmented ? segments || undefined : undefined,
               }}
               durationInFrames={durationInFrames}

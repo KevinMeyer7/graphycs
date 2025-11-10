@@ -1,6 +1,9 @@
-import React from "remotion";
+import React from "react";
 import { AbsoluteFill, Sequence, Html5Audio, Video, useCurrentFrame, useVideoConfig, interpolate, spring } from "remotion";
 import Lottie from "lottie-react";
+import { CrossFade } from "./transitions";
+import { LoopedBroll } from "./LoopedBroll";
+import { Grade } from "./Grade";
 
 export type Module = { title: string; points: string[]; lottie: "office" | "checklist" | "security" };
 export type Storyboard = {
@@ -47,6 +50,9 @@ const lottieMap: Record<Module["lottie"], any> = {
   checklist: LOADING_BUBBLES,
   security: LOADING_BUBBLES,
 };
+
+// Crossfade overlap duration (frames)
+const HANDLE = 12;
 
 // Motion helper
 const fadeInUp = (delayFrames = 0, dist = 20) => {
@@ -109,7 +115,7 @@ const BrollLayer: React.FC<{
 
 const IntroScene: React.FC<{ title: string; brollUrl?: string; moduleIndex?: number }> = ({ title, brollUrl, moduleIndex = 0 }) => (
   <AbsoluteFill style={{ background: "#0b1220", color: "white" }}>
-    {brollUrl && <BrollLayer brollUrl={brollUrl} opacity={0.18} blur={2} moduleIndex={moduleIndex} />}
+    {brollUrl && <LoopedBroll src={brollUrl} opacity={0.18} blur={2} />}
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center" }}>
       <h1 style={{ fontSize: 72, letterSpacing: -1, ...fadeInUp(0) }}>{title}</h1>
     </AbsoluteFill>
@@ -124,7 +130,7 @@ const ModuleScene: React.FC<{
   moduleIndex?: number;
 }> = ({ title, points, lottie, brollUrl, moduleIndex = 0 }) => (
   <AbsoluteFill style={{ background: "#ffffff" }}>
-    {brollUrl && <BrollLayer brollUrl={brollUrl} opacity={0.22} moduleIndex={moduleIndex} />}
+    {brollUrl && <LoopedBroll src={brollUrl} opacity={0.22} />}
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", height: "100%" }}>
       <div style={{ padding: 56 }}>
         <h1 style={{ fontSize: 48, marginBottom: 12, ...fadeInUp(0) }}>{title}</h1>
@@ -147,7 +153,7 @@ const ModuleScene: React.FC<{
 
 const SummaryScene: React.FC<{ text: string; brollUrl?: string; moduleIndex?: number }> = ({ text, brollUrl, moduleIndex = 0 }) => (
   <AbsoluteFill style={{ background: "#0b1220", color: "white" }}>
-    {brollUrl && <BrollLayer brollUrl={brollUrl} opacity={0.18} blur={2} moduleIndex={moduleIndex} />}
+    {brollUrl && <LoopedBroll src={brollUrl} opacity={0.18} blur={2} />}
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", padding: 40 }}>
       <div style={{ maxWidth: 900, textAlign: "center" }}>
         <h2 style={{ fontSize: 40, marginBottom: 14, ...fadeInUp(0) }}>Zusammenfassung</h2>
@@ -160,26 +166,26 @@ const SummaryScene: React.FC<{ text: string; brollUrl?: string; moduleIndex?: nu
 export const GraphycsComposition: React.FC<{
   storyboard: Storyboard;
   audioUrl?: string | null;
-  brollClips?: BrollClip[];
+  brollUrls?: string[]; // Simplified: just an array of URLs
   segments?: Segment[];
-}> = ({ storyboard, audioUrl, brollClips, segments }) => {
+}> = ({ storyboard, audioUrl, brollUrls, segments }) => {
   const fps = 30;
 
   // Helper to get B-roll URL by slide type
-  // Clip array structure: [intro, module1, module2, module3, summary]
+  // URL array structure: [intro, module1, module2, module3, summary]
   const getBrollForSlide = (slideType: 'intro' | 'module' | 'summary', moduleIndex: number = 0): string | undefined => {
-    if (!brollClips) return undefined;
+    if (!brollUrls) return undefined;
 
     let clipIndex: number;
     if (slideType === 'intro') {
       clipIndex = 0; // First clip is intro
     } else if (slideType === 'summary') {
-      clipIndex = brollClips.length - 1; // Last clip is summary
+      clipIndex = brollUrls.length - 1; // Last clip is summary
     } else {
       clipIndex = 1 + moduleIndex; // Modules start at index 1
     }
 
-    const url = brollClips[clipIndex]?.brollUrl;
+    const url = brollUrls[clipIndex];
     if (url) {
       console.log(`[Composition] ${slideType} ${moduleIndex} (clip ${clipIndex}) B-roll URL:`, url.substring(0, 80) + '...');
     }
@@ -187,12 +193,12 @@ export const GraphycsComposition: React.FC<{
   };
 
   // Debug logging
-  if (brollClips) {
-    console.log(`[Composition] Total B-roll clips available: ${brollClips.length}`);
+  if (brollUrls) {
+    console.log(`[Composition] Total B-roll clips available: ${brollUrls.length}`);
     console.log(`[Composition] Expected: intro + ${storyboard.modules.length} modules + summary = ${1 + storyboard.modules.length + 1} clips`);
-    brollClips.forEach((clip, i) => {
-      const label = i === 0 ? 'Intro' : i === brollClips.length - 1 ? 'Summary' : `Module ${i}`;
-      console.log(`[Composition] Clip ${i} (${label}):`, clip.brollUrl?.substring(0, 80) + '...');
+    brollUrls.forEach((url, i) => {
+      const label = i === 0 ? 'Intro' : i === brollUrls.length - 1 ? 'Summary' : `Module ${i}`;
+      console.log(`[Composition] Clip ${i} (${label}):`, url.substring(0, 80) + '...');
     });
   }
 
@@ -239,12 +245,17 @@ export const GraphycsComposition: React.FC<{
             </Sequence>
           );
         })}
+
+        {/* Global color grade overlay */}
+        <Grade duotoneTint="#10b981" />
       </AbsoluteFill>
     );
   }
 
-  // Single-pass audio fallback with per-slide B-roll
+  // Single-pass audio fallback with per-slide B-roll and overlapped timeline
   const perScene = 4 * fps;
+  const effectiveDuration = perScene - HANDLE; // Each scene starts HANDLE frames before previous ends
+
   return (
     <AbsoluteFill>
       {audioUrl ? <Html5Audio src={audioUrl} /> : null}
@@ -252,7 +263,7 @@ export const GraphycsComposition: React.FC<{
         <IntroScene title={storyboard.title} brollUrl={getBrollForSlide('intro')} moduleIndex={0} />
       </Sequence>
       {storyboard.modules.map((m, i) => (
-        <Sequence key={i} from={(i + 1) * perScene} durationInFrames={perScene}>
+        <Sequence key={i} from={(i + 1) * effectiveDuration} durationInFrames={perScene}>
           <ModuleScene
             title={m.title}
             points={m.points}
@@ -262,13 +273,16 @@ export const GraphycsComposition: React.FC<{
           />
         </Sequence>
       ))}
-      <Sequence from={(storyboard.modules.length + 1) * perScene} durationInFrames={perScene}>
+      <Sequence from={(storyboard.modules.length + 1) * effectiveDuration} durationInFrames={perScene}>
         <SummaryScene
           text={storyboard.summary}
           brollUrl={getBrollForSlide('summary')}
           moduleIndex={1 + storyboard.modules.length}
         />
       </Sequence>
+
+      {/* Global color grade overlay */}
+      <Grade duotoneTint="#10b981" />
     </AbsoluteFill>
   );
 };
