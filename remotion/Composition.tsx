@@ -6,6 +6,7 @@ import { SceneFrame } from "./SceneFrame";
 import { Timeline } from "./Timeline";
 import { KenBurnsVideo } from "./KenBurnsVideo";
 import { theme } from "./theme";
+import { CinematicLayer } from "./CinematicLayer";
 
 export type Module = { title: string; points: string[] };
 export type Storyboard = {
@@ -37,7 +38,7 @@ export const GraphycsComposition: React.FC<{
   segments?: Segment[];
 }> = ({ storyboard, audioUrl, brollUrls, segments }) => {
   const fps = 30;
-  const HANDLE = 12;
+  const HANDLE = 36;
 
   const introBroll = brollUrls?.[0];
   const moduleClip = (index: number) => brollUrls ? brollUrls[index + 1] : undefined;
@@ -160,13 +161,15 @@ export const GraphycsComposition: React.FC<{
           return (
             <Sequence key={idx} from={Math.round(segment.start * fps)} durationInFrames={Math.round(segment.duration * fps)}>
               <Html5Audio src={segment.url} />
-              <SceneFrame
-                tag={descriptor.tag}
-                kicker={descriptor.kicker}
-                title={descriptor.title}
-                bullets={[segment.text]}
-                right={renderInsight(sceneIndex)}
-              />
+              <CinematicLayer durationInFrames={Math.round(segment.duration * fps)}>
+                <SceneFrame
+                  tag={descriptor.tag}
+                  kicker={descriptor.kicker}
+                  title={descriptor.title}
+                  bullets={[segment.text]}
+                  right={renderInsight(sceneIndex)}
+                />
+              </CinematicLayer>
             </Sequence>
           );
         })}
@@ -187,14 +190,16 @@ export const GraphycsComposition: React.FC<{
       {audioUrl ? <Html5Audio src={audioUrl} /> : null}
       {scenePlan.map((scene, index) => (
         <Sequence key={scene.id} from={sceneOffsets[index]} durationInFrames={sceneDurations[index]}>
-          <SceneFrame
-            tag={scene.tag}
-            kicker={scene.kicker}
-            title={scene.title}
-            body={scene.body}
-            bullets={scene.bullets}
-            right={renderInsight(index)}
-          />
+          <CinematicLayer durationInFrames={sceneDurations[index]}>
+            <SceneFrame
+              tag={scene.tag}
+              kicker={scene.kicker}
+              title={scene.title}
+              body={scene.body}
+              bullets={scene.bullets}
+              right={renderInsight(index)}
+            />
+          </CinematicLayer>
         </Sequence>
       ))}
       <Timeline sceneDurations={runtimeDurations} />

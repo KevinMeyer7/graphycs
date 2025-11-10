@@ -43,7 +43,7 @@ export const RemotionRoot: React.FC = () => {
             console.log(`[Remotion] Duration from segments: ${totalDuration}s = ${durationInFrames} frames`);
           } else {
             const modules = props.storyboard?.modules ?? [];
-            const handle = 12;
+            const handle = 36;
             const baseDurations = [
               fps * 4, // intro
               fps * 4, // overview

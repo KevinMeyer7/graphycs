@@ -88,14 +88,33 @@ export const videoRouter = router({
       for (let i = 0; i < input.prompts.length; i++) {
         const concept = input.prompts[i];
         const seed = baseSeed + i;
-        const prompt = buildPrompt(concept, input.accent);
 
-        console.log(`\n[Runway] ===== Scene ${i + 1}/${input.prompts.length} =====`);
-        console.log(`[Runway]   Concept: "${concept}"`);
-        console.log(`[Runway]   Concept length: ${concept.length} chars`);
-        console.log(`[Runway]   Seed: ${seed}`);
-        console.log(`[Runway]   Generated prompt: "${prompt}"`);
-        console.log(`[Runway]   Prompt length: ${prompt.length} chars`);
+        // Try with original prompt first, then fallback to ultra-simple generic prompt on failure
+        let prompt = buildPrompt(concept, input.accent);
+        let retryAttempt = 0;
+        const maxRetries = 1; // Try original + 1 fallback
+
+        while (retryAttempt <= maxRetries) {
+          if (retryAttempt > 0) {
+            // Fallback to ultra-generic prompt
+            const genericPrompts = [
+              "office desk with laptop",
+              "modern workspace with computer",
+              "corporate office interior",
+              "business meeting room",
+              "professional office space"
+            ];
+            const fallbackConcept = genericPrompts[i % genericPrompts.length];
+            prompt = buildPrompt(fallbackConcept, input.accent);
+            console.log(`[Runway] Scene ${i + 1} RETRY ${retryAttempt} with fallback: "${prompt}"`);
+          }
+
+          console.log(`\n[Runway] ===== Scene ${i + 1}/${input.prompts.length} ${retryAttempt > 0 ? `(Retry ${retryAttempt})` : ''} =====`);
+          console.log(`[Runway]   Concept: "${concept}"`);
+          console.log(`[Runway]   Concept length: ${concept.length} chars`);
+          console.log(`[Runway]   Seed: ${seed}`);
+          console.log(`[Runway]   Generated prompt: "${prompt}"`);
+          console.log(`[Runway]   Prompt length: ${prompt.length} chars`);
 
         try {
           // Prepare request body - promptImage is always required by Runway API (data URI format)
@@ -195,11 +214,18 @@ export const videoRouter = router({
               fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
               console.log(`[Runway] Metadata saved: ${metaPath}`);
 
-              break;
+              break; // Success! Exit retry loop and polling loop
             } else if (statusData.status === 'FAILED') {
               console.error(`[Runway] Scene ${i + 1} FAILED - Full response:`, JSON.stringify(statusData, null, 2));
               const failureReason = statusData.failure || statusData.failure_reason || statusData.failureReason || statusData.error || 'Unknown error';
               const failureCode = statusData.failureCode || '';
+
+              // Check if this is a BAD_OUTPUT error and we have retries left
+              if (failureCode === 'INTERNAL.BAD_OUTPUT.CODE01' && retryAttempt < maxRetries) {
+                console.warn(`[Runway] Scene ${i + 1} BAD_OUTPUT error, will retry with simpler prompt`);
+                break; // Exit polling loop to retry with fallback prompt
+              }
+
               throw new Error(`Runway generation failed for scene ${i + 1}: ${failureReason} (${failureCode})`);
             }
 
@@ -209,10 +235,26 @@ export const videoRouter = router({
           if (attempts >= maxAttempts) {
             throw new Error(`Runway generation timed out for scene ${i + 1} after 5 minutes`);
           }
+
+          // If we successfully completed the video, break out of retry loop
+          if (urls.length === i + 1) {
+            break; // Success! Exit retry loop
+          }
         } catch (error) {
           console.error(`[Runway] Error generating scene ${i + 1}:`, error);
-          throw error;
+          // If we have retries left and it's a retriable error, continue to next retry
+          if (retryAttempt < maxRetries) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (errorMsg.includes('INTERNAL.BAD_OUTPUT.CODE01')) {
+              retryAttempt++;
+              continue; // Retry with fallback prompt
+            }
+          }
+          throw error; // Non-retriable error or out of retries
         }
+
+          retryAttempt++; // Increment for next iteration if needed
+        } // End retry while loop
       }
 
       console.log('[Runway] ===== BATCH GENERATION COMPLETE =====');

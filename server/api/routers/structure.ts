@@ -179,7 +179,22 @@ export const structureRouter = router({
           return getFallbackStoryboard();
         }
 
-        const parsed = storyboardSchema.safeParse(JSON.parse(content));
+        // Log content length for debugging
+        console.log(`[OpenAI] Response content length: ${content.length} chars`);
+        if (content.length > 10000) {
+          console.warn(`[OpenAI] Response suspiciously large (${content.length} chars), first 500 chars:`, content.substring(0, 500));
+        }
+
+        let jsonContent;
+        try {
+          jsonContent = JSON.parse(content);
+        } catch (parseError) {
+          console.error("[OpenAI] JSON parse error:", parseError);
+          console.error("[OpenAI] Content that failed to parse (first 1000 chars):", content.substring(0, 1000));
+          return getFallbackStoryboard();
+        }
+
+        const parsed = storyboardSchema.safeParse(jsonContent);
         if (!parsed.success) {
           console.warn(
             "Invalid schema from OpenAI; using fallback:",
@@ -198,11 +213,11 @@ export const structureRouter = router({
             messages: [
               {
                 role: "system",
-                content: `Generate simple, clear visual scene descriptions (<15 words) for reliable AI video generation.
-Focus on generic, professional corporate environments: modern offices, clean workspaces, simple data visualizations, neutral backgrounds.
-AVOID dramatic, artistic, or complex imagery. AVOID weather effects, dramatic lighting, or abstract concepts.
-Use straightforward, simple language. Keep descriptions minimal and generic.
-Return a JSON array of strings, one per module, plus intro and summary concepts.`
+                content: `Generate ultra-simple visual descriptions (<10 words) for AI video generation.
+Only describe concrete, tangible objects: desk, laptop, office, documents, screen, keyboard.
+AVOID: colors, lighting, mood, weather, abstract concepts, adjectives like "neutral", "minimal", "clean".
+Format: "[object] with [object]" - Example: "office desk with laptop and documents"
+Return a JSON array of 5 strings.`
               },
               {
                 role: "user",
@@ -245,13 +260,15 @@ Return a JSON array of strings, one per module, plus intro and summary concepts.
           console.warn("[OpenAI] Concept generation failed, using fallback concepts:", error);
         }
 
-        // Fallback: use intro + module titles + summary as concepts
+        // Fallback: use short generic concepts for reliable Runway generation
         return {
           ...storyboard,
           moduleConcepts: [
-            storyboard.intro,
-            ...storyboard.modules.map(m => m.title),
-            storyboard.summary
+            "clean modern office with data screens",
+            "professional workspace with documents",
+            "simple digital interface with buttons",
+            "corporate meeting room with laptops",
+            "organized desk with business materials"
           ]
         } as StoryboardWithConcepts;
       } catch (error) {
