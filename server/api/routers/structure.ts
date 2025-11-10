@@ -76,6 +76,7 @@ export const structureRouter = router({
     .input(
       z.object({
         text: z.string().min(20),
+        defaultStyle: z.enum(["office", "checklist", "security"]).optional(),
       })
     )
     .mutation(async ({ input }) => {

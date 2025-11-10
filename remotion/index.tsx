@@ -31,7 +31,6 @@ export const RemotionRoot: React.FC = () => {
           },
         }}
         calculateMetadata={({ props }) => {
-          // Dynamically calculate duration based on segments or fallback
           const fps = 30;
           let durationInFrames: number;
 
@@ -43,13 +42,19 @@ export const RemotionRoot: React.FC = () => {
             durationInFrames = Math.ceil(totalDuration * fps) + 30; // Add 1 second buffer
             console.log(`[Remotion] Duration from segments: ${totalDuration}s = ${durationInFrames} frames`);
           } else {
-            // Fallback: fixed duration per scene with overlaps
-            const perScene = 4 * fps; // 4 seconds per scene
-            const handle = 12; // Crossfade overlap
-            const effectiveDuration = perScene - handle;
-            const numScenes = 1 + (props.storyboard?.modules?.length || 3) + 1; // intro + modules + summary
-            durationInFrames = numScenes * effectiveDuration + handle;
-            console.log(`[Remotion] Duration from fallback: ${numScenes} scenes = ${durationInFrames} frames`);
+            const modules = props.storyboard?.modules ?? [];
+            const handle = 12;
+            const baseDurations = [
+              fps * 4, // intro
+              fps * 4, // overview
+              ...modules.map(() => fps * 4.5),
+              fps * 5, // summary
+            ];
+            const runtimeDurations = baseDurations.map((duration, idx) =>
+              idx === baseDurations.length - 1 ? duration : duration - handle
+            );
+            durationInFrames = runtimeDurations.reduce((acc, val) => acc + val, 0);
+            console.log(`[Remotion] Duration from fallback: ${runtimeDurations.length} scenes = ${durationInFrames} frames`);
           }
 
           return {
