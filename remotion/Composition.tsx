@@ -64,55 +64,7 @@ const fadeInUp = (delayFrames = 0, dist = 20) => {
   return { transform: `translateY(${y}px)`, opacity: o } as React.CSSProperties;
 };
 
-// B-roll layer with crossfade and color normalization
-const BrollLayer: React.FC<{
-  brollUrl: string;
-  opacity?: number;
-  blur?: number;
-  crossfadeDuration?: number;
-  moduleIndex?: number; // Added for unique Video keys
-}> = ({ brollUrl, opacity = 0.22, blur = 0, crossfadeDuration = 15, moduleIndex = 0 }) => {
-  const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
-
-  // Crossfade in at start
-  const fadeIn = interpolate(frame, [0, crossfadeDuration], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
-
-  // Crossfade out at end
-  const fadeOut = interpolate(
-    frame,
-    [durationInFrames - crossfadeDuration, durationInFrames],
-    [1, 0],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    }
-  );
-
-  const combinedOpacity = opacity * fadeIn * fadeOut;
-
-  return (
-    <AbsoluteFill
-      style={{
-        opacity: combinedOpacity,
-        mixBlendMode: "multiply",
-        filter: `brightness(1.05) saturate(0.95) hue-rotate(-5deg) blur(${blur}px)`,
-      }}
-    >
-      {/* Use unique key based on URL to prevent React reuse */}
-      <Video
-        key={`broll-${moduleIndex}-${brollUrl}`}
-        src={brollUrl}
-        loop
-        volume={0}
-      />
-    </AbsoluteFill>
-  );
-};
-
+// Scene components
 const IntroScene: React.FC<{ title: string; brollUrl?: string; moduleIndex?: number }> = ({ title, brollUrl, moduleIndex = 0 }) => (
   <AbsoluteFill style={{ background: "#0b1220", color: "white" }}>
     {brollUrl && <LoopedBroll src={brollUrl} opacity={0.18} blur={2} />}
