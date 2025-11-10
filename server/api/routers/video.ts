@@ -4,86 +4,88 @@ import fs from 'fs';
 import path from 'path';
 
 // Fixed style tokens for consistency across all scenes
-const STYLE_TOKENS = `flat 2D comic, corporate training style, soft gradients, minimal palette, loopable 6-second animation, subtle camera pan, no text, no faces, no logos`;
+const STYLE = "flat 2D comic, corporate training, soft gradients, minimal palette, loopable 5-second animation, subtle camera pan, no text, no faces, no logos";
 
-// Motion template for consistent looping
-const MOTION_TEMPLATE = `camera slowly pans left to right and returns seamlessly in a loop`;
+// Accent color type
+type AccentColor = "emerald" | "sky" | "amber";
 
-function buildPrompt(concept: string, accent: string): string {
-  return `${STYLE_TOKENS}, ${accent} accents, ${MOTION_TEMPLATE}, concept: ${concept}`;
+// Build prompt with fixed style + variable concept
+function buildPrompt(concept: string, accent: AccentColor = "emerald"): string {
+  return `${STYLE}, ${accent} accents, concept: ${concept}`;
 }
 
-// Metadata type
+// Metadata type for reproducibility
 type BrollMetadata = {
-  concept: string;
   prompt: string;
   seed: number;
-  style_frame: string;
   duration: number;
+  style_frame: string;
   scene_index: number;
-  module_title: string;
+  concept: string;
 };
 
 export const videoRouter = router({
-  generateBrollClips: publicProcedure
+  runwayBatch: publicProcedure
     .input(z.object({
-      concepts: z.array(z.string()).min(1).max(10),
-      moduleTitles: z.array(z.string()).min(1).max(10),
-      accentColor: z.string().default('emerald'),
-      duration: z.number().min(5).max(10).default(6)
+      prompts: z.array(z.string()).min(1).max(10),
+      seconds: z.union([z.literal(5), z.literal(10)]).default(5),
+      accent: z.enum(['emerald', 'sky', 'amber']).default('emerald'),
     }))
     .mutation(async ({ input }) => {
       const apiKey = process.env.RUNWAY_API_KEY;
+      const baseSeed = parseInt(process.env.BASE_SEED || '424242', 10);
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 
       if (!apiKey) {
         console.error('[Runway] RUNWAY_API_KEY missing');
-        throw new Error('RUNWAY_API_KEY missing');
+        throw new Error('RUNWAY_API_KEY is required. Set it in .env.local');
       }
 
-      // Style reference image URL (for image-to-video mode)
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      // Style reference image URL
       const styleFrameUrl = `${baseUrl}/style-frame.png`;
+      const stylePath = path.join(process.cwd(), 'public', 'style-frame.png');
 
-      console.log('[Runway] Generating', input.concepts.length, 'B-roll clips with style consistency');
+      // Check if style frame exists
+      if (!fs.existsSync(stylePath)) {
+        console.warn('[Runway] style-frame.png not found at public/style-frame.png');
+        console.warn('[Runway] Generation will use placeholder (may reduce style consistency)');
+      }
+
+      console.log('[Runway] ===== BATCH GENERATION START =====');
+      console.log('[Runway] Prompts:', input.prompts.length);
+      console.log('[Runway] Duration:', input.seconds, 'seconds');
+      console.log('[Runway] Accent:', input.accent);
+      console.log('[Runway] Base seed:', baseSeed);
       console.log('[Runway] Style frame:', styleFrameUrl);
-      console.log('[Runway] Accent color:', input.accentColor);
 
-      const results: Array<{
-        brollUrl: string;
-        metadata: BrollMetadata;
-      }> = [];
+      const urls: string[] = [];
+      const metadata: BrollMetadata[] = [];
 
-      // Create metadata directory if it doesn't exist
+      // Create metadata directory
       const metadataDir = path.join(process.cwd(), 'out');
       if (!fs.existsSync(metadataDir)) {
         fs.mkdirSync(metadataDir, { recursive: true });
       }
 
-      // Generate one clip per concept/module
-      for (let i = 0; i < input.concepts.length; i++) {
-        const concept = input.concepts[i];
-        const moduleTitle = input.moduleTitles[i] || `Module ${i + 1}`;
-        const seed = 424242 + i; // Deterministic seed per scene
-        const prompt = buildPrompt(concept, input.accentColor);
+      // Generate one clip per prompt
+      for (let i = 0; i < input.prompts.length; i++) {
+        const concept = input.prompts[i];
+        const seed = baseSeed + i;
+        const prompt = buildPrompt(concept, input.accent);
 
-        console.log(`[Runway] Scene ${i + 1}/${input.concepts.length}: "${moduleTitle}"`);
-        console.log(`[Runway] Concept: "${concept}"`);
-        console.log(`[Runway] Seed: ${seed}`);
-        console.log(`[Runway] Prompt: ${prompt}`);
+        console.log(`[Runway] Scene ${i + 1}/${input.prompts.length}`);
+        console.log(`[Runway]   Concept: "${concept}"`);
+        console.log(`[Runway]   Seed: ${seed}`);
+        console.log(`[Runway]   Prompt: ${prompt}`);
 
         try {
-          // Check if style frame exists, otherwise use placeholder
-          const stylePath = path.join(process.cwd(), 'public', 'style-frame.png');
+          // Prepare image URL or fallback to placeholder
           let promptImage: string;
-
           if (fs.existsSync(stylePath)) {
-            // Use style frame URL for consistency
             promptImage = styleFrameUrl;
-            console.log(`[Runway] Using style reference image`);
           } else {
-            // Fallback to placeholder
+            // Placeholder blue pixel
             promptImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-            console.log(`[Runway] Warning: style-frame.png not found, using placeholder`);
           }
 
           // Start video generation task
@@ -98,7 +100,7 @@ export const videoRouter = router({
               model: 'gen4_turbo',
               promptImage: promptImage,
               promptText: prompt,
-              duration: input.duration,
+              duration: input.seconds,
               ratio: '1280:720',
               seed
             })
@@ -113,11 +115,11 @@ export const videoRouter = router({
           const createData = await createRes.json();
           const taskId = createData.id;
 
-          console.log(`[Runway] Scene ${i + 1} task created with ID:`, taskId);
+          console.log(`[Runway] Scene ${i + 1} task created: ${taskId}`);
 
           // Poll for completion
           let attempts = 0;
-          const maxAttempts = 60; // 5 minutes max (5s intervals)
+          const maxAttempts = 60; // 5 minutes max
 
           while (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
@@ -132,45 +134,42 @@ export const videoRouter = router({
 
             if (!statusRes.ok) {
               console.error(`[Runway] Scene ${i + 1} status check failed:`, statusRes.status);
-              throw new Error(`Failed to check generation status for scene ${i + 1}`);
+              throw new Error(`Failed to check status for scene ${i + 1}`);
             }
 
             const statusData = await statusRes.json();
-            console.log(`[Runway] Scene ${i + 1} status check ${attempts + 1}/${maxAttempts}:`, statusData.status);
+            console.log(`[Runway] Scene ${i + 1} status [${attempts + 1}/${maxAttempts}]:`, statusData.status);
 
             if (statusData.status === 'SUCCEEDED') {
               const videoUrl = statusData.output?.[0];
 
               if (!videoUrl) {
-                throw new Error(`No video URL in successful response for scene ${i + 1}`);
+                throw new Error(`No video URL in response for scene ${i + 1}`);
               }
 
-              console.log(`[Runway] Scene ${i + 1} COMPLETE - Video URL:`, videoUrl);
+              console.log(`[Runway] Scene ${i + 1} COMPLETE:`, videoUrl);
 
-              // Build metadata
-              const metadata: BrollMetadata = {
-                concept,
+              urls.push(videoUrl);
+
+              const meta: BrollMetadata = {
                 prompt,
                 seed,
+                duration: input.seconds,
                 style_frame: '/style-frame.png',
-                duration: input.duration,
                 scene_index: i,
-                module_title: moduleTitle
+                concept
               };
 
-              // Save metadata to file for reproducibility
-              const metadataPath = path.join(metadataDir, `metadata_scene_${i}.json`);
-              fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-              console.log(`[Runway] Metadata saved to:`, metadataPath);
+              metadata.push(meta);
 
-              results.push({
-                brollUrl: videoUrl,
-                metadata
-              });
+              // Save metadata to file
+              const metaPath = path.join(metadataDir, `metadata_scene_${i}.json`);
+              fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+              console.log(`[Runway] Metadata saved: ${metaPath}`);
 
               break;
             } else if (statusData.status === 'FAILED') {
-              console.error(`[Runway] Scene ${i + 1} generation failed:`, statusData.failure_reason);
+              console.error(`[Runway] Scene ${i + 1} FAILED:`, statusData.failure_reason);
               throw new Error(`Runway generation failed for scene ${i + 1}: ${statusData.failure_reason}`);
             }
 
@@ -186,12 +185,22 @@ export const videoRouter = router({
         }
       }
 
-      console.log('[Runway] ===== ALL SCENES COMPLETE =====');
-      console.log(`[Runway] Generated ${results.length} style-consistent clips`);
+      console.log('[Runway] ===== BATCH GENERATION COMPLETE =====');
+      console.log(`[Runway] Generated ${urls.length} clips`);
+
+      // Save manifest
+      const manifest = {
+        scenes: metadata,
+        style_frame: '/style-frame.png',
+        generated_at: new Date().toISOString()
+      };
+      const manifestPath = path.join(metadataDir, 'manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      console.log('[Runway] Manifest saved:', manifestPath);
 
       return {
-        clips: results,
-        totalClips: results.length
+        urls,
+        metadata
       };
     })
 });
