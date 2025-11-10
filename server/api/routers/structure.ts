@@ -12,7 +12,6 @@ const storyboardSchema = z.object({
       z.object({
         title: z.string(),
         points: z.array(z.string()).length(3),
-        lottie: z.enum(["office", "checklist", "security"]),
       })
     )
     .length(3),
@@ -77,15 +76,12 @@ export const structureRouter = router({
     .input(
       z.object({
         text: z.string().min(20),
-        defaultStyle: z
-          .enum(["office", "checklist", "security"])
-          .default("office"),
       })
     )
     .mutation(async ({ input }) => {
       const openai = getOpenAIClient();
       if (!openai) {
-        return getFallbackStoryboard(input.defaultStyle);
+        return getFallbackStoryboard();
       }
 
       try {
@@ -103,11 +99,11 @@ export const structureRouter = router({
             {
               role: "system",
               content:
-                "You are an instructional designer. Structure the policy text into a training storyboard.",
+                "You are an instructional designer. Structure the policy text into an engaging training storyboard. IMPORTANT: All output must be in English.",
             },
             {
               role: "user",
-              content: `Structure the following German policy text into a training storyboard. Prefer lottie="${input.defaultStyle}" for modules when appropriate.\n\nText: ${input.text}`,
+              content: `Structure the following policy text into a training storyboard in English. Create clear, concise content optimized for video narration.\n\nText: ${input.text}`,
             },
           ],
           response_format: {
@@ -139,9 +135,8 @@ export const structureRouter = router({
                           minItems: 3,
                           maxItems: 3,
                         },
-                        lottie: { type: "string", enum: ["office", "checklist", "security"] },
                       },
-                      required: ["title", "points", "lottie"],
+                      required: ["title", "points"],
                       additionalProperties: false,
                     },
                     minItems: 3,
@@ -180,7 +175,7 @@ export const structureRouter = router({
         const content = response.choices[0]?.message?.content;
         if (!content) {
           console.warn("No content in OpenAI response; using fallback.");
-          return getFallbackStoryboard(input.defaultStyle);
+          return getFallbackStoryboard();
         }
 
         const parsed = storyboardSchema.safeParse(JSON.parse(content));
@@ -189,7 +184,7 @@ export const structureRouter = router({
             "Invalid schema from OpenAI; using fallback:",
             parsed.error
           );
-          return getFallbackStoryboard(input.defaultStyle);
+          return getFallbackStoryboard();
         }
 
         const storyboard = parsed.data;
@@ -202,13 +197,15 @@ export const structureRouter = router({
             messages: [
               {
                 role: "system",
-                content: `Generate concise visual scene descriptions (<15 words) for video generation.
-Use nouns/verbs from the training topic. Focus on visual elements that can be animated.
-Do not invent new style words. Return a JSON array of strings, one per module.`
+                content: `Generate simple, clear visual scene descriptions (<15 words) for reliable AI video generation.
+Focus on generic, professional corporate environments: modern offices, clean workspaces, simple data visualizations, neutral backgrounds.
+AVOID dramatic, artistic, or complex imagery. AVOID weather effects, dramatic lighting, or abstract concepts.
+Use straightforward, simple language. Keep descriptions minimal and generic.
+Return a JSON array of strings, one per module, plus intro and summary concepts.`
               },
               {
                 role: "user",
-                content: `Modules: ${JSON.stringify(storyboard.modules.map(m => ({ title: m.title, points: m.points })))}`
+                content: `Intro: ${storyboard.intro}\n\nModules: ${JSON.stringify(storyboard.modules.map(m => ({ title: m.title, points: m.points })))}\n\nSummary: ${storyboard.summary}`
               }
             ],
             response_format: {
@@ -222,8 +219,8 @@ Do not invent new style words. Return a JSON array of strings, one per module.`
                     concepts: {
                       type: "array",
                       items: { type: "string" },
-                      minItems: 3,
-                      maxItems: 3
+                      minItems: 5,
+                      maxItems: 5
                     }
                   },
                   required: ["concepts"],
@@ -231,106 +228,107 @@ Do not invent new style words. Return a JSON array of strings, one per module.`
                 }
               }
             },
-            temperature: 0.8
+            temperature: 0.3
           });
 
           const conceptContent = conceptResponse.choices[0]?.message?.content;
           if (conceptContent) {
             const conceptData = JSON.parse(conceptContent);
-            console.log("[OpenAI] Generated concepts:", conceptData.concepts);
+            console.log("[OpenAI] Generated B-roll concepts:", conceptData.concepts);
             return {
               ...storyboard,
               moduleConcepts: conceptData.concepts
             } as StoryboardWithConcepts;
           }
         } catch (error) {
-          console.warn("[OpenAI] Concept generation failed, using module titles:", error);
+          console.warn("[OpenAI] Concept generation failed, using fallback concepts:", error);
         }
 
-        // Fallback: use module titles as concepts
+        // Fallback: use intro + module titles + summary as concepts
         return {
           ...storyboard,
-          moduleConcepts: storyboard.modules.map(m => m.title)
+          moduleConcepts: [
+            storyboard.intro,
+            ...storyboard.modules.map(m => m.title),
+            storyboard.summary
+          ]
         } as StoryboardWithConcepts;
       } catch (error) {
         console.error("OpenAI API error, using fallback:", error);
-        return getFallbackStoryboard(input.defaultStyle);
+        return getFallbackStoryboard();
       }
     }),
 });
 
-function getFallbackStoryboard(
-  style: "office" | "checklist" | "security"
-): StoryboardWithConcepts {
+function getFallbackStoryboard(): StoryboardWithConcepts {
   return {
-    title: "DSGVO Essentials",
-    language: "de",
-    intro: "Warum Datenschutz zählt – Risiken, Vertrauen, Rechtsrahmen.",
+    title: "GDPR Essentials",
+    language: "en",
+    intro: "Why data protection matters – risks, trust, legal framework.",
     overview: [
-      "Begriffe: personenbezogene Daten, Verarbeitung, Verantwortliche/r",
-      "Rechtsgrundlagen: Einwilligung, Vertrag, gesetzliche Pflicht",
-      "Rechte: Auskunft, Berichtigung, Löschung",
+      "Terms: personal data, processing, data controller",
+      "Legal bases: consent, contract, legal obligation",
+      "Rights: access, rectification, erasure",
     ],
     modules: [
       {
-        title: "Datenminimierung & Zweckbindung",
+        title: "Data Minimization & Purpose Limitation",
         points: [
-          "Nur erforderliche Daten erfassen",
-          "Zweck klar dokumentieren",
-          "Regelmäßige Löschfristen umsetzen",
+          "Collect only necessary data",
+          "Clearly document purpose",
+          "Implement regular deletion schedules",
         ],
-        lottie: style,
       },
       {
-        title: "Einwilligungen korrekt einholen",
+        title: "Obtaining Consent Correctly",
         points: [
-          "Informiert, freiwillig, nachweisbar",
-          "Widerruf jederzeit ermöglichen",
-          "Keine Kopplung mit irrelevanten Vorteilen",
+          "Informed, voluntary, demonstrable",
+          "Enable withdrawal at any time",
+          "No coupling with irrelevant benefits",
         ],
-        lottie: style,
       },
       {
-        title: "Sicherheitsvorfälle & Meldepflicht",
+        title: "Security Incidents & Reporting Obligations",
         points: [
-          "Erkennen, dokumentieren, 72-Stunden-Meldung",
-          "Kontakt zur Datenschutzbeauftragten Person",
-          "Kommunikation mit Betroffenen vorbereiten",
+          "Detect, document, 72-hour notification",
+          "Contact data protection officer",
+          "Prepare communication with affected parties",
         ],
-        lottie: style,
       },
     ],
     summary:
-      "Datenschutz ist Teamarbeit: korrekt erheben, sicher verarbeiten, Vorfälle melden.",
+      "Data protection is teamwork: collect correctly, process securely, report incidents.",
     quiz: [
       {
-        q: "Was bedeutet Datenminimierung?",
+        q: "What does data minimization mean?",
         a: [
-          "So viel wie möglich erfassen",
-          "Nur notwendige Daten erfassen",
-          "Alle Daten verschlüsseln",
+          "Collect as much as possible",
+          "Collect only necessary data",
+          "Encrypt all data",
         ],
         correct: 1,
       },
       {
-        q: "Welche Bedingung gilt für Einwilligungen?",
+        q: "Which condition applies to consent?",
         a: [
-          "Immer stillschweigend",
-          "Informiert & nachweisbar",
-          "Nur mündlich",
+          "Always implied",
+          "Informed & demonstrable",
+          "Only verbal",
         ],
         correct: 1,
       },
       {
-        q: "Frist zur Meldung eines Vorfalls?",
-        a: ["72 Stunden", "14 Tage", "Sofort ist nicht notwendig"],
+        q: "Deadline for reporting an incident?",
+        a: ["72 hours", "14 days", "Immediate reporting not necessary"],
         correct: 0,
       },
     ],
     moduleConcepts: [
-      "data minimization checklist with selective collection",
-      "consent forms with clear approval process",
-      "incident reporting with 72-hour timeline"
+      "clean modern office with data screens",
+      "professional workspace with documents",
+      "simple digital interface with buttons",
+      "corporate meeting room with laptops",
+      "organized desk with business materials"
     ]
   };
 }

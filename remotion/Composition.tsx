@@ -1,11 +1,10 @@
 import React from "react";
 import { AbsoluteFill, Sequence, Html5Audio, Video, useCurrentFrame, useVideoConfig, interpolate, spring } from "remotion";
-import Lottie from "lottie-react";
 import { CrossFade } from "./transitions";
 import { LoopedBroll } from "./LoopedBroll";
 import { Grade } from "./Grade";
 
-export type Module = { title: string; points: string[]; lottie: "office" | "checklist" | "security" };
+export type Module = { title: string; points: string[] };
 export type Storyboard = {
   title: string;
   language: string;
@@ -17,39 +16,6 @@ export type Storyboard = {
 };
 export type Segment = { text: string; start: number; duration: number; url: string };
 export type BrollClip = { brollUrl: string; metadata: any };
-
-const LOADING_BUBBLES = {
-  v: "5.7.8",
-  fr: 30,
-  ip: 0,
-  op: 120,
-  w: 200,
-  h: 120,
-  nm: "bubbles",
-  ddd: 0,
-  assets: [],
-  layers: Array.from({ length: 4 }).map((_, i) => ({
-    ddd: 0,
-    ind: i + 1,
-    ty: 4,
-    sr: 1,
-    ks: { o: { a: 0, k: 100 }, r: { a: 0, k: 0 }, p: { a: 0, k: [40 + i * 40, 60, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 0, k: [100, 100, 100] } },
-    shapes: [
-      { ty: "el", p: { a: 0, k: [0, 0] }, s: { a: 0, k: [16, 16] }, d: 1 },
-      { ty: "fl", c: { a: 0, k: [0.1, 0.6, 0.95, 1] }, o: { a: 0, k: 100 }, r: 1 },
-    ],
-    ip: 0,
-    op: 120,
-    st: 0,
-    bm: 0,
-  })),
-} as any;
-
-const lottieMap: Record<Module["lottie"], any> = {
-  office: LOADING_BUBBLES,
-  checklist: LOADING_BUBBLES,
-  security: LOADING_BUBBLES,
-};
 
 // Crossfade overlap duration (frames)
 const HANDLE = 12;
@@ -77,27 +43,21 @@ const IntroScene: React.FC<{ title: string; brollUrl?: string; moduleIndex?: num
 const ModuleScene: React.FC<{
   title: string;
   points: string[];
-  lottie: Module["lottie"];
   brollUrl?: string;
   moduleIndex?: number;
-}> = ({ title, points, lottie, brollUrl, moduleIndex = 0 }) => (
+}> = ({ title, points, brollUrl, moduleIndex = 0 }) => (
   <AbsoluteFill style={{ background: "#ffffff" }}>
-    {brollUrl && <LoopedBroll src={brollUrl} opacity={0.22} />}
-    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", height: "100%" }}>
-      <div style={{ padding: 56 }}>
-        <h1 style={{ fontSize: 48, marginBottom: 12, ...fadeInUp(0) }}>{title}</h1>
-        <ul style={{ fontSize: 28, lineHeight: 1.45 }}>
+    {brollUrl && <LoopedBroll src={brollUrl} opacity={0.25} />}
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", padding: 80 }}>
+      <div style={{ maxWidth: 1100 }}>
+        <h1 style={{ fontSize: 56, marginBottom: 24, fontWeight: 700, ...fadeInUp(0) }}>{title}</h1>
+        <ul style={{ fontSize: 32, lineHeight: 1.6, listStyleType: "disc", paddingLeft: 40 }}>
           {points.map((p, j) => (
-            <li key={j} style={fadeInUp(6 + j * 4)}>
+            <li key={j} style={{ marginBottom: 16, ...fadeInUp(6 + j * 4) }}>
               {p}
             </li>
           ))}
         </ul>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 280, height: 190 }}>
-          <Lottie animationData={lottieMap[lottie]} loop autoplay />
-        </div>
       </div>
     </div>
   </AbsoluteFill>
@@ -108,7 +68,7 @@ const SummaryScene: React.FC<{ text: string; brollUrl?: string; moduleIndex?: nu
     {brollUrl && <LoopedBroll src={brollUrl} opacity={0.18} blur={2} />}
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", padding: 40 }}>
       <div style={{ maxWidth: 900, textAlign: "center" }}>
-        <h2 style={{ fontSize: 40, marginBottom: 14, ...fadeInUp(0) }}>Zusammenfassung</h2>
+        <h2 style={{ fontSize: 40, marginBottom: 14, ...fadeInUp(0) }}>Summary</h2>
         <p style={{ fontSize: 26, lineHeight: 1.5, ...fadeInUp(6) }}>{text}</p>
       </div>
     </AbsoluteFill>
@@ -173,17 +133,15 @@ export const GraphycsComposition: React.FC<{
               {/* Map segments to scenes */}
               {i < storyboard.overview.length ? (
                 <ModuleScene
-                  title={"Überblick"}
+                  title={"Overview"}
                   points={[s.text]}
-                  lottie={"checklist"}
                   brollUrl={getBrollForSlide('intro')}
                   moduleIndex={0}
                 />
               ) : i < storyboard.overview.length + storyboard.modules.length ? (
                 <ModuleScene
-                  title={storyboard.modules[moduleIdx]?.title || "Modul"}
+                  title={storyboard.modules[moduleIdx]?.title || "Module"}
                   points={storyboard.modules[moduleIdx]?.points || [s.text]}
-                  lottie={storyboard.modules[moduleIdx]?.lottie || "office"}
                   brollUrl={getBrollForSlide('module', moduleIdx)}
                   moduleIndex={1 + moduleIdx}
                 />
@@ -219,7 +177,6 @@ export const GraphycsComposition: React.FC<{
           <ModuleScene
             title={m.title}
             points={m.points}
-            lottie={m.lottie}
             brollUrl={getBrollForSlide('module', i)}
             moduleIndex={1 + i}
           />

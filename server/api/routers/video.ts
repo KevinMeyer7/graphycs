@@ -3,15 +3,25 @@ import { router, publicProcedure } from '../trpc';
 import fs from 'fs';
 import path from 'path';
 
-// Fixed style tokens for consistency across all scenes
-const STYLE = "flat 2D comic, corporate training, soft gradients, minimal palette, loopable 5-second animation, subtle camera pan, no text, no faces, no logos";
+// Simple, clean prompts for reliable generation
+const BASE_STYLE = "Professional corporate training visual, clean modern design, smooth camera movement";
 
 // Accent color type
 type AccentColor = "emerald" | "sky" | "amber";
 
-// Build prompt with fixed style + variable concept
+// Simple color descriptions
+const ACCENT_COLORS = {
+  emerald: "green and teal color scheme",
+  sky: "blue color scheme",
+  amber: "warm orange color scheme"
+};
+
+// Build simple, reliable prompt
 function buildPrompt(concept: string, accent: AccentColor = "emerald"): string {
-  return `${STYLE}, ${accent} accents, concept: ${concept}`;
+  const color = ACCENT_COLORS[accent];
+  // Keep prompts under 200 chars for reliability
+  const simpleConcept = concept.substring(0, 100);
+  return `${BASE_STYLE}, ${color}, ${simpleConcept}`;
 }
 
 // Metadata type for reproducibility
@@ -41,14 +51,22 @@ export const videoRouter = router({
         throw new Error('RUNWAY_API_KEY is required. Set it in .env.local');
       }
 
-      // Style reference image URL
-      const styleFrameUrl = `${baseUrl}/style-frame.png`;
+      // Style reference image - use data URI (Runway supports https://, runway://, or data:image/)
       const stylePath = path.join(process.cwd(), 'public', 'style-frame.png');
 
-      // Check if style frame exists
-      if (!fs.existsSync(stylePath)) {
-        console.warn('[Runway] style-frame.png not found at public/style-frame.png');
-        console.warn('[Runway] Generation will use placeholder (may reduce style consistency)');
+      let promptImage: string;
+
+      if (fs.existsSync(stylePath)) {
+        // Read existing style frame and convert to data URI
+        const imageBuffer = fs.readFileSync(stylePath);
+        promptImage = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+        console.log('[Runway] Using style-frame.png as data URI');
+      } else {
+        // Create minimal 1x1 neutral gray PNG as data URI
+        // This is a valid PNG with neutral gray color that won't interfere with prompt
+        const minimalPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        promptImage = `data:image/png;base64,${minimalPngBase64}`;
+        console.log('[Runway] Using minimal placeholder data URI');
       }
 
       console.log('[Runway] ===== BATCH GENERATION START =====');
@@ -56,7 +74,6 @@ export const videoRouter = router({
       console.log('[Runway] Duration:', input.seconds, 'seconds');
       console.log('[Runway] Accent:', input.accent);
       console.log('[Runway] Base seed:', baseSeed);
-      console.log('[Runway] Style frame:', styleFrameUrl);
 
       const urls: string[] = [];
       const metadata: BrollMetadata[] = [];
@@ -73,20 +90,31 @@ export const videoRouter = router({
         const seed = baseSeed + i;
         const prompt = buildPrompt(concept, input.accent);
 
-        console.log(`[Runway] Scene ${i + 1}/${input.prompts.length}`);
+        console.log(`\n[Runway] ===== Scene ${i + 1}/${input.prompts.length} =====`);
         console.log(`[Runway]   Concept: "${concept}"`);
+        console.log(`[Runway]   Concept length: ${concept.length} chars`);
         console.log(`[Runway]   Seed: ${seed}`);
-        console.log(`[Runway]   Prompt: ${prompt}`);
+        console.log(`[Runway]   Generated prompt: "${prompt}"`);
+        console.log(`[Runway]   Prompt length: ${prompt.length} chars`);
 
         try {
-          // Prepare image URL or fallback to placeholder
-          let promptImage: string;
-          if (fs.existsSync(stylePath)) {
-            promptImage = styleFrameUrl;
-          } else {
-            // Placeholder blue pixel
-            promptImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-          }
+          // Prepare request body - promptImage is always required by Runway API (data URI format)
+          const requestBody = {
+            model: 'gen4_turbo',
+            promptImage: promptImage,
+            promptText: prompt,
+            duration: input.seconds,
+            ratio: '1280:720',
+            seed
+          };
+
+          console.log(`[Runway]   Request body:`);
+          console.log(`[Runway]     - model: ${requestBody.model}`);
+          console.log(`[Runway]     - promptImage: ${requestBody.promptImage.substring(0, 50)}... (${requestBody.promptImage.length} chars)`);
+          console.log(`[Runway]     - promptText: "${requestBody.promptText}"`);
+          console.log(`[Runway]     - duration: ${requestBody.duration}`);
+          console.log(`[Runway]     - ratio: ${requestBody.ratio}`);
+          console.log(`[Runway]     - seed: ${requestBody.seed}`);
 
           // Start video generation task
           const createRes = await fetch('https://api.dev.runwayml.com/v1/image_to_video', {
@@ -96,24 +124,23 @@ export const videoRouter = router({
               'Content-Type': 'application/json',
               'X-Runway-Version': '2024-11-06'
             },
-            body: JSON.stringify({
-              model: 'gen4_turbo',
-              promptImage: promptImage,
-              promptText: prompt,
-              duration: input.seconds,
-              ratio: '1280:720',
-              seed
-            })
+            body: JSON.stringify(requestBody)
           });
 
           if (!createRes.ok) {
             const errorText = await createRes.text();
-            console.error(`[Runway] Scene ${i + 1} API error:`, createRes.status, errorText);
+            console.error(`[Runway] Scene ${i + 1} CREATE API error:`, createRes.status, errorText);
             throw new Error(`Runway generation failed for scene ${i + 1}: ${createRes.status} - ${errorText}`);
           }
 
           const createData = await createRes.json();
+          console.log(`[Runway] Scene ${i + 1} create response:`, JSON.stringify(createData, null, 2));
+
           const taskId = createData.id;
+          if (!taskId) {
+            console.error(`[Runway] Scene ${i + 1} no task ID in response:`, createData);
+            throw new Error(`Runway generation failed for scene ${i + 1}: No task ID returned`);
+          }
 
           console.log(`[Runway] Scene ${i + 1} task created: ${taskId}`);
 
@@ -144,6 +171,7 @@ export const videoRouter = router({
               const videoUrl = statusData.output?.[0];
 
               if (!videoUrl) {
+                console.error(`[Runway] Scene ${i + 1} no video URL in response:`, JSON.stringify(statusData, null, 2));
                 throw new Error(`No video URL in response for scene ${i + 1}`);
               }
 
@@ -169,8 +197,10 @@ export const videoRouter = router({
 
               break;
             } else if (statusData.status === 'FAILED') {
-              console.error(`[Runway] Scene ${i + 1} FAILED:`, statusData.failure_reason);
-              throw new Error(`Runway generation failed for scene ${i + 1}: ${statusData.failure_reason}`);
+              console.error(`[Runway] Scene ${i + 1} FAILED - Full response:`, JSON.stringify(statusData, null, 2));
+              const failureReason = statusData.failure || statusData.failure_reason || statusData.failureReason || statusData.error || 'Unknown error';
+              const failureCode = statusData.failureCode || '';
+              throw new Error(`Runway generation failed for scene ${i + 1}: ${failureReason} (${failureCode})`);
             }
 
             attempts++;
